@@ -65,6 +65,9 @@ exports.handler = async function(event, context) {
       }
     }
 
+    // Sanitize recipient list (split, trim, filter, join with comma)
+    recipient = recipient.split(',').map(e => e.trim()).filter(Boolean).join(', ');
+
     // 1. Try Resend API if API key is configured
     const resendApiKey = process.env.RESEND_API_KEY;
     if (resendApiKey) {
