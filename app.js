@@ -572,7 +572,6 @@ async function saveVotes(paymentRef, totalAmountPaid, receiptUrl = null) {
     `);
 
     // Show success modal
-    const totalVotes = items.reduce((s, i) => s + i.qty, 0);
     document.getElementById('successRef').textContent     = paymentRef;
     document.getElementById('successSummary').textContent =
       `${totalVotes} vote${totalVotes > 1 ? 's' : ''} cast pending approval.`;
