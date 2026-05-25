@@ -60,6 +60,22 @@ const sb = (() => {
         headers: { 'apikey': CFG.supabaseKey, 'Authorization': `Bearer ${_session?.access_token}` },
       });
     },
+    async upload(bucket, path, file) {
+      const r = await fetch(`${base}/storage/v1/object/${bucket}/${path}`, {
+        method: 'POST',
+        headers: {
+          'apikey':        CFG.supabaseKey,
+          'Authorization': `Bearer ${CFG.supabaseKey}`,
+          'Content-Type':  file.type
+        },
+        body: file
+      });
+      if (!r.ok) {
+        const data = await r.json();
+        throw new Error(data.error || data.message || r.statusText);
+      }
+      return `${base}/storage/v1/object/public/${bucket}/${path}`;
+    },
   };
 })();
 
@@ -72,6 +88,7 @@ let _elections     = [];
 let _activeElection = null;
 let _positions     = [];
 let _cart          = {};   // { candidateId: { candidate, qty } }
+let _isSignUpMode  = false;  // toggle between sign-in and sign-up
 
 // ──────────────────────────────────────────────────────────────
 // 3.  UTILITY HELPERS
@@ -103,51 +120,28 @@ function getInitials(name = '') {
 // ──────────────────────────────────────────────────────────────
 // 4.  AUTH
 // ──────────────────────────────────────────────────────────────
-/**
- * Constructs:
- *   email    = matric.trim().toLowerCase() + "@asson.app"
- *   password = surname.trim().toUpperCase()
- */
-function buildCredentials(matric, surname) {
-  const email    = matric.trim().toLowerCase().replace(/\//g, '-') + CFG.dummyDomain;
-  const password = surname.trim().toUpperCase();
-  return { email, password };
+
+async function loginWithEmail(email, password) {
+  const data = await sb.auth('token?grant_type=password', { email, password });
+  _session     = data;
+  _currentUser = data.user;
+  sessionStorage.setItem('asson_session', JSON.stringify(data));
+  sessionStorage.setItem('asson_user',    JSON.stringify(data.user));
 }
 
-async function login(matric, surname) {
-  const { email, password } = buildCredentials(matric, surname);
-
-  // Attempt sign-in first
-  try {
-    const data = await sb.auth('token?grant_type=password', { email, password });
-    _session   = data;
-    _currentUser = data.user;
-    sessionStorage.setItem('asson_session', JSON.stringify(data));
-    sessionStorage.setItem('asson_user',    JSON.stringify(data.user));
-    return;
-  } catch (_) {
-    // User may not exist yet — auto-register them
-  }
-
-  // Auto-register (sign-up) with matric as display name
-  const signupData = await sb.auth('signup', {
-    email, password,
-    data: { matric_number: matric.trim().toUpperCase(), full_name: surname.trim().toUpperCase() },
-  });
+async function signUpWithEmail(email, password) {
+  const signupData = await sb.auth('signup', { email, password });
 
   if (signupData.access_token) {
-    // Email confirmation disabled (recommended for Supabase settings)
+    // Email confirmation disabled — user is immediately signed in
     _session     = signupData;
     _currentUser = signupData.user;
+    sessionStorage.setItem('asson_session', JSON.stringify(_session));
+    sessionStorage.setItem('asson_user',    JSON.stringify(_currentUser));
   } else {
-    // Supabase requires email confirmation — sign in again
-    const data = await sb.auth('token?grant_type=password', { email, password });
-    _session     = data;
-    _currentUser = data.user;
+    // Email confirmation may be enabled — try to sign in directly
+    throw new Error('Account created! Please check your email to confirm, then sign in.');
   }
-
-  sessionStorage.setItem('asson_session', JSON.stringify(_session));
-  sessionStorage.setItem('asson_user',    JSON.stringify(_currentUser));
 }
 
 async function logout() {
@@ -174,9 +168,10 @@ function showVoting() {
 }
 
 function populateHeader() {
-  const matric = _currentUser?.user_metadata?.matric_number || _currentUser?.email?.split('@')[0]?.toUpperCase() || '??';
-  document.getElementById('headerName').textContent   = matric;
-  document.getElementById('headerAvatar').textContent = getInitials(matric);
+  const email = _currentUser?.email || '??';
+  const name = email.split('@')[0];
+  document.getElementById('headerName').textContent   = email;
+  document.getElementById('headerAvatar').textContent = getInitials(name);
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -427,64 +422,111 @@ function renderCart() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// 9.  PAYSTACK PAYMENT
+// 9.  MANUAL PROOF OF PAYMENT
 // ──────────────────────────────────────────────────────────────
-function initiatePayment() {
-  const items    = Object.values(_cart);
+let _activeBankDetails = null;
+
+async function initiatePayment() {
+  const items = Object.values(_cart);
   if (!items.length) return;
 
   const rate     = Number(_activeElection?.price_per_vote || 100);
   const totalQty = items.reduce((s, i) => s + i.qty, 0);
   const totalNgn = totalQty * rate;
-  const totalKobo= totalNgn * 100;   // Paystack uses kobo
 
-  const email    = _session?.user?.email || `unknown${Date.now()}@asson.app`;
-  const matric   = _currentUser?.user_metadata?.matric_number
-                || _currentUser?.email?.split('@')[0]?.toUpperCase()
-                || 'STUDENT';
+  // Set amounts in the modal
+  document.getElementById('displayTotalAmount').textContent = fmtNaira(totalNgn);
 
-  const handler = PaystackPop.setup({
-    key:    CFG.paystackPubKey,
-    email:  email,
-    amount: totalKobo,
-    currency: 'NGN',
-    ref:    `ASSON-${Date.now()}-${Math.random().toString(36).substring(2,8).toUpperCase()}`,
-    metadata: {
-      custom_fields: [
-        { display_name: 'Matric Number', variable_name: 'matric', value: matric },
-        { display_name: 'Total Votes',   variable_name: 'votes',  value: totalQty },
-      ],
-    },
-    onClose() {
-      showToast('Payment cancelled.', 'warning');
-    },
-    async callback(response) {
-      // Payment successful — save votes
-      await saveVotes(response.reference, totalNgn);
-    },
-  });
+  // Fetch active bank details
+  const modal = document.getElementById('paymentModal');
+  modal.classList.remove('hidden');
 
-  handler.openIframe();
+  try {
+    const details = await sb.get('bank_details?is_active=eq.true&limit=1');
+    if (details.length > 0) {
+      _activeBankDetails = details[0];
+      document.getElementById('displayBankName').textContent = escHtml(details[0].bank_name);
+      document.getElementById('displayAccountNumber').textContent = escHtml(details[0].account_number);
+      document.getElementById('displayAccountName').textContent = escHtml(details[0].account_name);
+    } else {
+      document.getElementById('displayBankName').textContent = 'Admin has not set bank details.';
+      document.getElementById('displayAccountNumber').textContent = '—';
+      document.getElementById('displayAccountName').textContent = '—';
+    }
+  } catch (err) {
+    showToast('Failed to fetch payment details: ' + err.message, 'error');
+  }
 }
+
+// Bind close and upload events
+document.getElementById('paymentCancelBtn').addEventListener('click', () => {
+  document.getElementById('paymentModal').classList.add('hidden');
+  document.getElementById('receiptFile').value = '';
+});
+
+document.getElementById('submitProofBtn').addEventListener('click', async () => {
+  const fileInput = document.getElementById('receiptFile');
+  if (!fileInput.files || !fileInput.files[0]) {
+    showToast('Please upload a screenshot/image of your transfer receipt.', 'error');
+    return;
+  }
+
+  const items = Object.values(_cart);
+  if (!items.length) return;
+
+  const btn  = document.getElementById('submitProofBtn');
+  const spin = document.getElementById('proofSpinner');
+  const txt  = document.getElementById('submitProofBtnText');
+
+  btn.disabled = true;
+  spin.classList.remove('hidden');
+  txt.textContent = 'Submitting…';
+
+  try {
+    const file = fileInput.files[0];
+    const fileExt = file.name.split('.').pop();
+    const uniqueFileName = `receipt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+    
+    // Upload receipt to Supabase Storage
+    const receiptUrl = await sb.upload('payment-receipts', uniqueFileName, file);
+    
+    const rate     = Number(_activeElection?.price_per_vote || 100);
+    const totalQty = items.reduce((s, i) => s + i.qty, 0);
+    const totalNgn = totalQty * rate;
+    const ref = `ASSON-${Date.now()}-${Math.random().toString(36).substring(2,8).toUpperCase()}`;
+
+    await saveVotes(ref, totalNgn, receiptUrl);
+    
+    document.getElementById('paymentModal').classList.add('hidden');
+    fileInput.value = '';
+  } catch (err) {
+    showToast('Failed to upload proof of payment: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    spin.classList.add('hidden');
+    txt.textContent = 'Submit Proof & Vote';
+  }
+});
 
 // ──────────────────────────────────────────────────────────────
 // 10. SAVE VOTES TO SUPABASE
 // ──────────────────────────────────────────────────────────────
-async function saveVotes(paymentRef, totalAmountPaid) {
+async function saveVotes(paymentRef, totalAmountPaid, receiptUrl = null) {
   const items  = Object.values(_cart);
   const userId = _currentUser?.id || null;
-  const matric = _currentUser?.user_metadata?.matric_number
-              || _currentUser?.email?.split('@')[0]?.toUpperCase();
+  const userEmail = _currentUser?.email || 'unknown';
   const rate   = Number(_activeElection?.price_per_vote || 100);
 
   // Build vote rows — one row per candidate in the cart
   const voteRows = items.map(({ candidate, qty }) => ({
     candidate_id:      candidate.id,
     voter_id:          userId,
-    matric_number:     matric,
+    matric_number:     userEmail,
     number_of_votes:   qty,
     amount_paid:       qty * rate,
     payment_reference: paymentRef,
+    receipt_url:       receiptUrl,
+    status:            'pending', // explicit pending
   }));
 
   try {
@@ -495,7 +537,7 @@ async function saveVotes(paymentRef, totalAmountPaid) {
     const totalVotes = items.reduce((s, i) => s + i.qty, 0);
     document.getElementById('successRef').textContent     = paymentRef;
     document.getElementById('successSummary').textContent =
-      `${totalVotes} vote${totalVotes > 1 ? 's' : ''} cast across ${items.length} candidate${items.length > 1 ? 's' : ''}.`;
+      `${totalVotes} vote${totalVotes > 1 ? 's' : ''} cast pending approval.`;
     document.getElementById('successModal').classList.remove('hidden');
 
     // Clear cart
@@ -529,11 +571,16 @@ function escHtml(str = '') {
 // ──────────────────────────────────────────────────────────────
 document.getElementById('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const matric  = document.getElementById('matricInput').value.trim();
-  const surname = document.getElementById('surnameInput').value.trim();
+  const email    = document.getElementById('emailInput').value.trim();
+  const password = document.getElementById('passwordInput').value.trim();
 
-  if (!matric || !surname) {
-    showAuthError('Please enter both your Matric Number and Surname.');
+  if (!email || !password) {
+    showAuthError('Please enter both your Email and Password.');
+    return;
+  }
+
+  if (_isSignUpMode && password.length < 6) {
+    showAuthError('Password must be at least 6 characters long.');
     return;
   }
 
@@ -541,13 +588,34 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
   hideAuthError();
 
   try {
-    await login(matric, surname);
+    if (_isSignUpMode) {
+      await signUpWithEmail(email, password);
+    } else {
+      await loginWithEmail(email, password);
+    }
     showVoting();
   } catch (err) {
-    showAuthError(err.message || 'Login failed. Please try again.');
+    showAuthError(err.message || 'Authentication failed. Please try again.');
   } finally {
     setLoginLoading(false);
   }
+});
+
+// Auth toggle (sign-in <-> sign-up)
+document.getElementById('authToggleLink').addEventListener('click', e => {
+  e.preventDefault();
+  _isSignUpMode = !_isSignUpMode;
+  document.getElementById('authSubtitle').textContent =
+    _isSignUpMode ? 'Student Portal \u2014 Create Account' : 'Student Portal \u2014 Sign In';
+  document.getElementById('loginBtnText').textContent =
+    _isSignUpMode ? 'Create Account' : 'Sign In & Vote';
+  document.getElementById('authToggleText').textContent =
+    _isSignUpMode ? 'Already have an account?' : "Don't have an account?";
+  document.getElementById('authToggleLink').textContent =
+    _isSignUpMode ? 'Sign In' : 'Sign Up';
+  document.getElementById('passwordHint').textContent =
+    _isSignUpMode ? 'Minimum 6 characters' : 'Your account password';
+  hideAuthError();
 });
 
 document.getElementById('logoutBtn').addEventListener('click', logout);
@@ -571,7 +639,9 @@ function hideAuthError() {
 }
 function setLoginLoading(loading) {
   document.getElementById('loginBtn').disabled      = loading;
-  document.getElementById('loginBtnText').textContent = loading ? 'Signing in…' : 'Sign In & Vote';
+  document.getElementById('loginBtnText').textContent = loading
+    ? (_isSignUpMode ? 'Creating account\u2026' : 'Signing in\u2026')
+    : (_isSignUpMode ? 'Create Account' : 'Sign In & Vote');
   document.getElementById('loginSpinner').classList.toggle('hidden', !loading);
 }
 

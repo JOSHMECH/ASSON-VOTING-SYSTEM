@@ -6,8 +6,6 @@
   <title>ASSON Voting — Student Portal</title>
   <link rel="stylesheet" href="style.css" />
 
-  <!-- Paystack Inline JS -->
-  <script src="https://js.paystack.co/v1/inline.js"></script>
 </head>
 <body>
 
@@ -21,13 +19,10 @@
       <!-- Card Head -->
       <div class="auth-card-head">
         <div class="auth-logo-ring">
-          <!-- Ballot-box SVG -->
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/>
-          </svg>
+          <img src="img/logo.png" alt="ASSON Logo" style="width:100%;height:100%;object-fit:contain;border-radius:50%;" />
         </div>
         <h1 class="auth-title">ASSON Voting</h1>
-        <p class="auth-subtitle">Student Portal — Secure Login</p>
+        <p class="auth-subtitle" id="authSubtitle">Student Portal — Sign In</p>
       </div>
 
       <!-- Card Body -->
@@ -44,29 +39,30 @@
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
 
             <div class="form-group">
-              <label class="form-label" for="matricInput">Matric Number</label>
+              <label class="form-label" for="emailInput">Email Address</label>
               <input
-                id="matricInput"
-                type="text"
+                id="emailInput"
+                type="email"
                 class="form-control"
-                placeholder="e.g. CSC/2020/001"
-                autocomplete="username"
+                placeholder="e.g. student@example.com"
+                autocomplete="email"
                 required
               />
-              <span class="form-hint">Your university matriculation number</span>
+              <span class="form-hint">Your email address</span>
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="surnameInput">Surname</label>
+              <label class="form-label" for="passwordInput">Password</label>
               <input
-                id="surnameInput"
+                id="passwordInput"
                 type="password"
                 class="form-control"
-                placeholder="Enter your surname"
+                placeholder="Enter your password"
                 autocomplete="current-password"
                 required
+                minlength="6"
               />
-              <span class="form-hint">Your surname (case-insensitive)</span>
+              <span class="form-hint" id="passwordHint">Your account password</span>
             </div>
 
             <button type="submit" id="loginBtn" class="btn btn-primary btn-xl w-full">
@@ -74,12 +70,17 @@
               <span id="loginSpinner" class="spinner hidden"></span>
             </button>
 
+            <div style="text-align:center; font-size:.85rem; color:var(--gray-600);">
+              <span id="authToggleText">Don't have an account?</span>
+              <a href="#" id="authToggleLink" style="color:var(--green); font-weight:600; text-decoration:none;">Sign Up</a>
+            </div>
+
           </div>
         </form>
       </div>
 
       <div class="auth-footer-text">
-        Your matric number and surname are used for secure authentication.
+        Your email and password are used for secure authentication.
         No personal data is stored beyond what's needed for the vote.
       </div>
     </div>
@@ -97,9 +98,7 @@
     <div class="container">
       <div class="logo">
         <div class="logo-mark">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/>
-          </svg>
+          <img src="img/logo.png" alt="ASSON Logo" style="width:100%;height:100%;object-fit:contain;border-radius:50%;" />
         </div>
         <div>
           <div class="logo-text">ASSON Voting</div>
@@ -205,10 +204,10 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>
                 </svg>
-                Pay &amp; Vote
+                Proceed to Payment
               </button>
               <p style="font-size:.7rem;color:var(--gray-500);text-align:center;margin-top:.5rem;">
-                Powered by Paystack — 100% secure
+                ASSON Secure Manual Bank Verification
               </p>
             </div>
           </div>
@@ -223,15 +222,68 @@
 
 
 <!-- ════════════════════════════════════════
+     MANUAL PAYMENT MODAL
+════════════════════════════════════════ -->
+<div id="paymentModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-head" style="padding: 1.5rem 1.5rem 1.25rem;">
+      <div class="modal-title">Manual Payment</div>
+      <p style="color:rgba(255,255,255,.75); font-size:.825rem; margin-top:.25rem;">
+        Transfer the exact amount to the ASSON bank account details below, then upload your proof of payment.
+      </p>
+    </div>
+    <div class="modal-body" style="padding: 1.5rem; display:flex; flex-direction:column; gap:1.25rem;">
+      
+      <!-- Bank Account Details Card -->
+      <div style="background:var(--gray-100); border:1px solid var(--gray-200); border-radius:var(--radius-md); padding:1rem; display:flex; flex-direction:column; gap:.5rem;">
+        <div style="display:flex; justify-content:space-between; font-size:.85rem;">
+          <span class="text-muted">Bank Name</span>
+          <span id="displayBankName" class="font-semi text-green">Loading…</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:.85rem;">
+          <span class="text-muted">Account Number</span>
+          <span id="displayAccountNumber" class="font-semi text-green" style="font-family:monospace; font-size:.95rem;">Loading…</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:.85rem;">
+          <span class="text-muted">Account Name</span>
+          <span id="displayAccountName" class="font-semi text-green">Loading…</span>
+        </div>
+        <div style="height:1px; background:var(--gray-200); margin:.5rem 0;"></div>
+        <div style="display:flex; justify-content:space-between; font-size:.95rem; font-weight:700;">
+          <span>Amount to Pay</span>
+          <span id="displayTotalAmount" style="color:var(--green);">₦0.00</span>
+        </div>
+      </div>
+
+      <!-- File Upload Group -->
+      <div class="form-group">
+        <label class="form-label" for="receiptFile">Upload Payment Receipt / Screenshot *</label>
+        <input id="receiptFile" type="file" class="form-control" accept="image/*" required />
+        <span class="form-hint">Upload a screenshot of your transfer (JPG, PNG, WebP)</span>
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <button id="paymentCancelBtn" class="btn btn-ghost">Cancel</button>
+      <button id="submitProofBtn" class="btn btn-primary" style="min-width:160px;">
+        <span id="submitProofBtnText">Submit Proof &amp; Vote</span>
+        <span id="proofSpinner" class="spinner hidden"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
      SUCCESS MODAL
 ════════════════════════════════════════ -->
 <div id="successModal" class="modal-overlay hidden">
   <div class="modal-box">
     <div class="modal-head" style="text-align:center; padding: 2.5rem 2rem;">
-      <div style="font-size:3rem; margin-bottom:.75rem;">🎉</div>
-      <div class="modal-title">Votes Recorded!</div>
+      <div style="font-size:3rem; margin-bottom:.75rem;">📥</div>
+      <div class="modal-title">Proof Submitted!</div>
       <p style="color:rgba(255,255,255,.75); font-size:.875rem; margin-top:.375rem;">
-        Your payment was successful and your votes have been cast.
+        Your receipt has been uploaded and your votes are pending approval by the administrator.
       </p>
     </div>
     <div class="modal-body" style="text-align:center;">
@@ -256,8 +308,8 @@
 <script>
   // ── CONFIGURATION — update these for your project ──────────
   window.ASSON_CONFIG = {
-    supabaseUrl:    'https://YOUR_PROJECT_REF.supabase.co',
-    supabaseKey:    'YOUR_SUPABASE_ANON_KEY',
+    supabaseUrl:    'https://vkiykdykzgcfylvxlcud.supabase.co',
+    supabaseKey:    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZraXlrZHlremdjZnlsdnhsY3VkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTIzNjksImV4cCI6MjA5NTI4ODM2OX0.aR6dAGYdf6SX9DvAZeMZNj9G2pFTCMxUIVlokx3PpFM',
     paystackPubKey: 'pk_test_YOUR_PAYSTACK_PUBLIC_KEY',
     dummyDomain:    '@asson.app',
   };

@@ -51,11 +51,78 @@ const sb = (() => {
       if (!r.ok) throw new Error((await r.json()).message || r.statusText);
       return true;
     },
+    async upload(bucket, path, file) {
+      const r = await fetch(`${base}/storage/v1/object/${bucket}/${path}`, {
+        method: 'POST',
+        headers: {
+          'apikey':        CFG.supabaseKey,
+          'Authorization': `Bearer ${CFG.supabaseKey}`,
+          'Content-Type':  file.type
+        },
+        body: file
+      });
+      if (!r.ok) {
+        const data = await r.json();
+        throw new Error(data.error || data.message || r.statusText);
+      }
+      return `${base}/storage/v1/object/public/${bucket}/${path}`;
+    },
+    async patchQuery(table, queryParam, body) {
+      const r = await fetch(`${base}/rest/v1/${table}?${queryParam}`, {
+        method: 'PATCH',
+        headers: H(),
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json()).message || r.statusText);
+      return r.json();
+    },
   };
 })();
 
 // ──────────────────────────────────────────────────────────────
-// 2.  TOAST
+// 2.  ADMIN GATE — password-protect the dashboard
+// ──────────────────────────────────────────────────────────────
+let _gateUnlocked = false;
+
+(function adminGate() {
+  const gateEl    = document.getElementById('adminGate');
+  const contentEl = document.getElementById('adminContent');
+  const formEl    = document.getElementById('gateForm');
+  const errorEl   = document.getElementById('gateError');
+
+  // Already authenticated this session?
+  if (sessionStorage.getItem('asson_admin_auth') === 'true') {
+    gateEl.style.display = 'none';
+    contentEl.style.display = '';
+    _gateUnlocked = true;
+    return;
+  }
+
+  // Show gate, hide dashboard
+  gateEl.style.display = '';
+  contentEl.style.display = 'none';
+
+  formEl.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const entered = document.getElementById('gatePassword').value;
+
+    if (entered === CFG.adminPassword) {
+      sessionStorage.setItem('asson_admin_auth', 'true');
+      gateEl.style.display = 'none';
+      contentEl.style.display = '';
+      _gateUnlocked = true;
+      // Now bootstrap the dashboard
+      initDashboard();
+    } else {
+      errorEl.classList.remove('hidden');
+      document.getElementById('gatePassword').value = '';
+      document.getElementById('gatePassword').focus();
+    }
+  });
+})();
+
+// ──────────────────────────────────────────────────────────────
+// 3.  TOAST
 // ──────────────────────────────────────────────────────────────
 function showToast(msg, type = 'success') {
   const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
@@ -138,14 +205,16 @@ async function fetchOverview() {
   try {
     // ── 5a. Total votes & revenue from the votes table ──────
     const votes = await sb.get(
-      'votes?select=number_of_votes,amount_paid,created_at,matric_number,payment_reference,candidate_id,candidates(name,positions(title))'
+      'votes?select=number_of_votes,amount_paid,created_at,matric_number,payment_reference,receipt_url,status,candidate_id,candidates(name,positions(title))'
     );
 
-    const totalVotes   = votes.reduce((s, v) => s + (v.number_of_votes || 0), 0);
-    const totalRevenue = votes.reduce((s, v) => s + Number(v.amount_paid || 0), 0);
+    const approvedVotes = votes.filter(v => v.status === 'approved');
+
+    const totalVotes   = approvedVotes.reduce((s, v) => s + (v.number_of_votes || 0), 0);
+    const totalRevenue = approvedVotes.reduce((s, v) => s + Number(v.amount_paid || 0), 0);
 
     // Unique students (by matric_number or voter_id)
-    const uniqueVoters = new Set(votes.map(v => v.matric_number || v.voter_id)).size;
+    const uniqueVoters = new Set(approvedVotes.map(v => v.matric_number || v.voter_id)).size;
 
     // ── 5b. Active elections count ──────────────────────────
     const elections = await sb.get('elections?order=created_at.desc');
@@ -153,7 +222,7 @@ async function fetchOverview() {
 
     // ── 5c. Revenue over time (group by day) ────────────────
     const dayMap = {};
-    votes.forEach(v => {
+    approvedVotes.forEach(v => {
       const day = new Date(v.created_at).toLocaleDateString('en-NG', { month:'short', day:'numeric' });
       dayMap[day] = (dayMap[day] || 0) + Number(v.amount_paid || 0);
     });
@@ -162,7 +231,7 @@ async function fetchOverview() {
 
     // ── 5d. Leaderboard (top 8 candidates by votes) ─────────
     const lbMap = {};
-    votes.forEach(v => {
+    approvedVotes.forEach(v => {
       const name = v.candidates?.name || 'Unknown';
       lbMap[name] = (lbMap[name] || 0) + (v.number_of_votes || 0);
     });
@@ -170,21 +239,29 @@ async function fetchOverview() {
     const lbLabels = sorted.map(e => e[0]);
     const lbData   = sorted.map(e => e[1]);
 
-    // ── 5e. Recent 20 transactions ───────────────────────────
-    const recent = votes.slice(-20).reverse();
-
     // ── UPDATE METRICS ──────────────────────────────────────
     document.getElementById('metricRevenue').textContent = fmtNaira(totalRevenue);
     document.getElementById('metricVotes').textContent   = totalVotes.toLocaleString();
-    document.getElementById('metricStudents').textContent= uniqueVoters.toLocaleString();
+
+    let registeredCount = 0;
+    try {
+      const regUsers = await sb.get('registered_users?select=id');
+      registeredCount = regUsers.length;
+    } catch (_) {}
+    document.getElementById('metricStudents').textContent = registeredCount.toLocaleString();
     document.getElementById('metricElections').textContent = activeCount;
 
     const todayStr = new Date().toLocaleDateString('en-NG', { month:'short', day:'numeric' });
     const todayRev  = dayMap[todayStr] || 0;
-    const todayVotes= votes.filter(v => new Date(v.created_at).toDateString() === new Date().toDateString())
-                           .reduce((s,v) => s + v.number_of_votes, 0);
+    const todayVotes= approvedVotes.filter(v => new Date(v.created_at).toDateString() === new Date().toDateString())
+                                   .reduce((s,v) => s + v.number_of_votes, 0);
     document.getElementById('metricRevenueDelta').textContent  = `+${fmtNaira(todayRev)} today`;
     document.getElementById('metricVotesDelta').textContent    = `+${todayVotes} today`;
+
+    const deltaStudentsEl = document.getElementById('metricStudentsDelta');
+    if (deltaStudentsEl) {
+      deltaStudentsEl.textContent = `${uniqueVoters} who voted`;
+    }
 
     // ── RENDER REVENUE CHART ─────────────────────────────────
     renderRevenueChart(revLabels, revData);
@@ -193,11 +270,14 @@ async function fetchOverview() {
     renderLeaderboardChart(lbLabels, lbData);
 
     // ── RENDER RECENT TRANSACTIONS TABLE ────────────────────
-    renderTxnTable(recent, 'txnTableBody', 6);
-    document.getElementById('txnCount').textContent = `${votes.length} records`;
+    renderRecentGroupedTxns(votes, 'txnTableBody');
+    
+    // Grouped txns count
+    const uniqueRefs = new Set(votes.map(v => v.payment_reference)).size;
+    document.getElementById('txnCount').textContent = `${uniqueRefs} transfers`;
 
-    // also populate all-txn table
-    renderTxnTable(votes.slice().reverse(), 'allTxnTableBody', 7);
+    // also populate all-txn table (main panel)
+    renderGroupedTxns(votes, 'allTxnTableBody');
 
     return { votes, elections, lbLabels, lbData };
   } catch (err) {
@@ -294,28 +374,138 @@ function renderLeaderboardChart(labels, data) {
 }
 
 // ──────────────────────────────────────────────────────────────
-// 7.  TRANSACTIONS TABLE
+// 7.  TRANSACTIONS TABLE HELPERS & GROUPING
 // ──────────────────────────────────────────────────────────────
-function renderTxnTable(votes, tbodyId, cols) {
+function groupVotes(votes) {
+  const grouped = {};
+  votes.forEach(v => {
+    const ref = v.payment_reference || 'NO-REF';
+    if (!grouped[ref]) {
+      grouped[ref] = {
+        reference: ref,
+        email: v.matric_number || '—',
+        votes_count: 0,
+        amount: 0,
+        receipt_url: v.receipt_url || '',
+        status: v.status || 'pending',
+        created_at: v.created_at,
+        selections: []
+      };
+    }
+    grouped[ref].votes_count += (v.number_of_votes || 0);
+    grouped[ref].amount += Number(v.amount_paid || 0);
+    if (v.candidates?.name) {
+      grouped[ref].selections.push(`${v.candidates.name} (×${v.number_of_votes})`);
+    }
+  });
+  return Object.values(grouped);
+}
+
+function renderRecentGroupedTxns(votes, tbodyId) {
   const tbody = document.getElementById(tbodyId);
-  if (!votes.length) {
-    tbody.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;padding:2rem;color:var(--gray-500);">No transactions yet.</td></tr>`;
+  const txns = groupVotes(votes).slice(0, 8); // top 8 recent grouped
+  
+  if (!txns.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--gray-500);">No transactions yet.</td></tr>`;
     return;
   }
-  tbody.innerHTML = votes.map(v => {
-    const name = v.candidates?.name || '—';
-    const pos  = v.candidates?.positions?.title || '—';
+
+  tbody.innerHTML = txns.map(t => {
+    const statusBadges = {
+      pending:  '<span class="badge badge-gold">Pending</span>',
+      approved: '<span class="badge badge-green">Approved</span>',
+      rejected: '<span class="badge badge-danger">Rejected</span>'
+    };
+    const badge = statusBadges[t.status] || `<span class="badge badge-gray">${escHtml(t.status)}</span>`;
+
     return `
       <tr>
-        <td><span class="txn-ref">${escHtml(v.payment_reference||'')}</span></td>
-        <td>${escHtml(v.matric_number||'—')}</td>
-        <td>${escHtml(name)}</td>
-        ${cols === 7 ? `<td>${escHtml(pos)}</td>` : ''}
-        <td><span class="badge badge-green">×${v.number_of_votes}</span></td>
-        <td>${fmtNaira(v.amount_paid)}</td>
-        <td style="white-space:nowrap;">${fmtDate(v.created_at)}</td>
+        <td><span class="txn-ref" title="${escHtml(t.selections.join(', ')) || 'No candidates'}">${escHtml(t.reference)}</span></td>
+        <td>${escHtml(t.email)}</td>
+        <td><span class="badge badge-gray">×${t.votes_count}</span></td>
+        <td>${fmtNaira(t.amount)}</td>
+        <td>${badge}</td>
+        <td style="white-space:nowrap;">${fmtDate(t.created_at)}</td>
       </tr>`;
   }).join('');
+}
+
+function renderGroupedTxns(votes, tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  const txns = groupVotes(votes);
+  
+  if (!txns.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--gray-500);">No transactions yet.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = txns.map(t => {
+    // Badges based on status
+    const statusBadges = {
+      pending:  '<span class="badge badge-gold">Pending</span>',
+      approved: '<span class="badge badge-green">Approved</span>',
+      rejected: '<span class="badge badge-danger">Rejected</span>'
+    };
+    const badge = statusBadges[t.status] || `<span class="badge badge-gray">${escHtml(t.status)}</span>`;
+
+    // Receipt link
+    const receiptLink = t.receipt_url 
+      ? `<a href="${escHtml(t.receipt_url)}" target="_blank" class="btn btn-outline btn-sm" style="padding:.2rem .5rem; font-size:.75rem;">View Receipt</a>`
+      : '<span class="text-muted text-xs">No upload</span>';
+
+    // Actions
+    let actions = '—';
+    if (t.status === 'pending') {
+      actions = `
+        <div style="display:flex; gap:.35rem;">
+          <button class="btn btn-primary btn-sm approve-txn-btn" data-ref="${escHtml(t.reference)}" style="padding:.25rem .5rem; font-size:.75rem;">Approve</button>
+          <button class="btn btn-danger btn-sm reject-txn-btn" data-ref="${escHtml(t.reference)}" style="padding:.25rem .5rem; font-size:.75rem;">Reject</button>
+        </div>`;
+    }
+
+    return `
+      <tr>
+        <td><span class="txn-ref" title="${escHtml(t.selections.join(', ')) || 'No candidates'}">${escHtml(t.reference)}</span></td>
+        <td>${escHtml(t.email)}</td>
+        <td><span class="badge badge-gray">×${t.votes_count}</span></td>
+        <td>${fmtNaira(t.amount)}</td>
+        <td>${receiptLink}</td>
+        <td>${badge}</td>
+        <td style="white-space:nowrap;">${fmtDate(t.created_at)}</td>
+        <td>${actions}</td>
+      </tr>`;
+  }).join('');
+
+  // Bind actions
+  tbody.querySelectorAll('.approve-txn-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ref = btn.dataset.ref;
+      btn.disabled = true; btn.textContent = 'Approve…';
+      try {
+        await sb.patchQuery('votes', 'payment_reference=eq.' + ref, { status: 'approved' });
+        showToast('Transaction approved!');
+        await refreshAllData();
+      } catch (err) {
+        showToast('Approval failed: ' + err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Approve';
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.reject-txn-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ref = btn.dataset.ref;
+      btn.disabled = true; btn.textContent = 'Reject…';
+      try {
+        await sb.patchQuery('votes', 'payment_reference=eq.' + ref, { status: 'rejected' });
+        showToast('Transaction rejected.');
+        await refreshAllData();
+      } catch (err) {
+        showToast('Rejection failed: ' + err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Reject';
+      }
+    });
+  });
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -373,6 +563,36 @@ async function fetchLeaderboard(electionId) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// 8.5 REGISTERED STUDENTS LIST
+// ──────────────────────────────────────────────────────────────
+async function fetchStudents() {
+  const tbody = document.getElementById('studentTableBody');
+  tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:2rem;"><div class="spinner-lg spinner" style="margin:0 auto;"></div></td></tr>`;
+  try {
+    const students = await sb.get('registered_users?order=created_at.desc');
+    document.getElementById('studentCount').textContent = `${students.length} sign ups`;
+    
+    if (!students.length) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:2rem;color:var(--gray-500);">No students signed up yet.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = students.map(s => {
+      return `
+        <tr>
+          <td><span class="txn-ref">${escHtml(s.id||'')}</span></td>
+          <td style="font-weight:600;">${escHtml(s.email||'—')}</td>
+          <td>${fmtDate(s.created_at)}</td>
+          <td>${fmtDate(s.last_sign_in_at)}</td>
+        </tr>`;
+    }).join('');
+  } catch (err) {
+    showToast('Failed to load students: ' + err.message, 'error');
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:2rem;color:var(--danger);">Error: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
 // 9.  ELECTIONS CRUD
 // ──────────────────────────────────────────────────────────────
 let _elections = [];
@@ -425,8 +645,7 @@ async function renderElectionList() {
       try {
         await sb.patch('elections', id, { is_active: !active });
         showToast(`Election ${!active ? 'activated' : 'archived'}.`);
-        renderElectionList();
-        populateElectionDropdowns();
+        await refreshAllData();
       } catch (err) {
         showToast(err.message, 'error');
       }
@@ -594,13 +813,7 @@ document.getElementById('confirmDeleteBtn').addEventListener('click', async () =
     showToast(`Deleted successfully.`);
     document.getElementById('confirmModal').classList.add('hidden');
     _pendingDelete = null;
-    // Refresh relevant panel
-    if (type === 'elections')  { renderElectionList(); populateElectionDropdowns(); }
-    if (type === 'positions')  { renderPositionList(); }
-    if (type === 'candidates') {
-      const el = document.getElementById('candFilterElection').value;
-      renderCandidateList(el !== 'all' ? el : null);
-    }
+    await refreshAllData();
   } catch (err) {
     showToast('Delete failed: ' + err.message, 'error');
   }
@@ -609,14 +822,16 @@ document.getElementById('confirmDeleteBtn').addEventListener('click', async () =
 // ──────────────────────────────────────────────────────────────
 // 14. SIDEBAR NAVIGATION
 // ──────────────────────────────────────────────────────────────
-const PANELS = ['overview','leaderboard','transactions','elections','positions','candidates'];
+const PANELS = ['overview','leaderboard','transactions','students','elections','positions','candidates','payments'];
 const TITLES = {
   overview:     'Overview',
   leaderboard:  'Live Leaderboard',
   transactions: 'Transactions',
+  students:     'Registered Students',
   elections:    'Election Management',
   positions:    'Category Management',
   candidates:   'Candidate Management',
+  payments:     'Payment Settings',
 };
 
 function switchPanel(panel) {
@@ -635,6 +850,9 @@ function switchPanel(panel) {
     const el = document.getElementById('leaderElectionFilter').value;
     fetchLeaderboard(el);
   }
+  if (panel === 'transactions') { fetchOverview(); }
+  if (panel === 'students')     { fetchStudents(); }
+  if (panel === 'payments')     { fetchBankDetails(); }
   if (panel === 'elections')    { renderElectionList(); }
   if (panel === 'positions')    { renderPositionList(); }
   if (panel === 'candidates')   {
@@ -645,6 +863,29 @@ function switchPanel(panel) {
 
 document.querySelectorAll('.nav-item[data-panel]').forEach(btn => {
   btn.addEventListener('click', () => switchPanel(btn.dataset.panel));
+});
+
+// Sidebar toggle for mobile
+document.getElementById('sidebarToggle').addEventListener('click', () => {
+  document.querySelector('.sidebar').classList.toggle('sidebar-open');
+  document.querySelector('.sidebar-overlay')?.remove();
+  if (document.querySelector('.sidebar').classList.contains('sidebar-open')) {
+    const overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.addEventListener('click', () => {
+      document.querySelector('.sidebar').classList.remove('sidebar-open');
+      overlay.remove();
+    });
+    document.querySelector('.admin-layout').appendChild(overlay);
+  }
+});
+
+// Close sidebar on nav click (mobile)
+document.querySelectorAll('.nav-item[data-panel]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelector('.sidebar').classList.remove('sidebar-open');
+    document.querySelector('.sidebar-overlay')?.remove();
+  });
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -666,8 +907,7 @@ document.getElementById('createElectionForm').addEventListener('submit', async e
     showToast('Election created!');
     e.target.reset();
     document.getElementById('elActive').checked = true;
-    renderElectionList();
-    populateElectionDropdowns();
+    await refreshAllData();
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
   } finally {
@@ -688,8 +928,7 @@ document.getElementById('createPositionForm').addEventListener('submit', async e
     });
     showToast('Position added!');
     e.target.reset();
-    renderPositionList();
-    populateElectionDropdowns();
+    await refreshAllData();
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
   } finally {
@@ -703,18 +942,35 @@ document.getElementById('createCandidateForm').addEventListener('submit', async 
   const btn = document.getElementById('createCandidateBtn');
   btn.disabled = true; btn.textContent = 'Adding…';
   const name = document.getElementById('candName').value.trim();
+  const photoFileInput = document.getElementById('candPhotoFile');
+  let photoUrl = document.getElementById('candPhoto').value.trim();
+
   try {
+    // If a file is selected, upload it first
+    if (photoFileInput.files && photoFileInput.files[0]) {
+      btn.textContent = 'Uploading photo…';
+      const file = photoFileInput.files[0];
+      const fileExt = file.name.split('.').pop();
+      const uniqueFileName = `candidate_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+      
+      // Upload to the candidate-photos storage bucket
+      photoUrl = await sb.upload('candidate-photos', uniqueFileName, file);
+    }
+
+    // Default fallback placeholder if no image URL or file uploaded
+    if (!photoUrl) {
+      photoUrl = `https://placehold.co/200x200/008751/ffffff?text=${encodeURIComponent(name[0]||'?')}`;
+    }
+
     await sb.post('candidates', {
       position_id: document.getElementById('candPosition').value,
       name,
-      photo_url:   document.getElementById('candPhoto').value.trim() ||
-                   `https://placehold.co/200x200/008751/ffffff?text=${encodeURIComponent(name[0]||'?')}`,
+      photo_url:   photoUrl,
       bio:         document.getElementById('candBio').value.trim() || null,
     });
     showToast('Candidate added!');
     e.target.reset();
-    const el = document.getElementById('candFilterElection').value;
-    renderCandidateList(el !== 'all' ? el : null);
+    await refreshAllData();
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
   } finally {
@@ -746,15 +1002,23 @@ document.getElementById('txnSearch').addEventListener('input', function () {
   });
 });
 
+// Student search
+document.getElementById('studentSearch').addEventListener('input', function () {
+  const q = this.value.toLowerCase();
+  const rows = document.querySelectorAll('#studentTableBody tr');
+  rows.forEach(r => {
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+
 // Refresh button
-document.getElementById('refreshBtn').addEventListener('click', () => {
-  const active = document.querySelector('.nav-item.active')?.dataset.panel || 'overview';
-  switchPanel(active);
+document.getElementById('refreshBtn').addEventListener('click', async () => {
+  await refreshAllData();
   showToast('Data refreshed.', 'info');
 });
 
 // ──────────────────────────────────────────────────────────────
-// 16. AUTO-REFRESH (every 30 seconds on overview)
+// 16. AUTO-REFRESH (every 30 seconds on active panels)
 // ──────────────────────────────────────────────────────────────
 setInterval(() => {
   const active = document.querySelector('.nav-item.active')?.dataset.panel;
@@ -763,15 +1027,117 @@ setInterval(() => {
     const el = document.getElementById('leaderElectionFilter').value;
     fetchLeaderboard(el);
   }
+  if (active === 'students') fetchStudents();
+  if (active === 'payments') fetchBankDetails();
 }, 30000);
 
 // ──────────────────────────────────────────────────────────────
-// 17. BOOTSTRAP
+// 16.5 BANK ACCOUNT DETAILS SETTINGS EDITOR
 // ──────────────────────────────────────────────────────────────
-(async function init() {
+let _activeBank = null;
+
+async function fetchBankDetails() {
+  const container = document.getElementById('activeBankContainer');
+  container.innerHTML = `<div class="page-loader"><div class="spinner spinner-lg"></div></div>`;
+  try {
+    const details = await sb.get('bank_details?order=created_at.desc');
+    if (!details.length) {
+      container.innerHTML = '<p class="text-muted text-sm">No bank credentials configured. Use the form on the left to set details.</p>';
+      return;
+    }
+    
+    _activeBank = details[0]; // first one is active
+    
+    // Fill the inputs with current active details
+    document.getElementById('bankNameInput').value = _activeBank.bank_name;
+    document.getElementById('accountNumberInput').value = _activeBank.account_number;
+    document.getElementById('accountNameInput').value = _activeBank.account_name;
+
+    container.innerHTML = `
+      <div style="background:var(--green-50); border:1px solid var(--green-100); border-radius:var(--radius-md); padding:1rem; display:flex; flex-direction:column; gap:.5rem;">
+        <div style="display:flex; justify-content:space-between; font-size:.85rem;">
+          <span class="text-muted">Bank Name</span>
+          <span class="font-semi text-green">${escHtml(_activeBank.bank_name)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:.85rem;">
+          <span class="text-muted">Account Number</span>
+          <span class="font-semi text-green" style="font-family:monospace; font-size:.95rem;">${escHtml(_activeBank.account_number)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:.85rem;">
+          <span class="text-muted">Account Name</span>
+          <span class="font-semi text-green">${escHtml(_activeBank.account_name)}</span>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    showToast('Failed to load bank details: ' + err.message, 'error');
+    container.innerHTML = `<p class="text-danger text-sm">Error: ${escHtml(err.message)}</p>`;
+  }
+}
+
+// Update bank form submit
+document.getElementById('updateBankForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('updateBankBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  
+  const bank_name = document.getElementById('bankNameInput').value.trim();
+  const account_number = document.getElementById('accountNumberInput').value.trim();
+  const account_name = document.getElementById('accountNameInput').value.trim();
+
+  try {
+    if (_activeBank) {
+      // Update existing
+      await sb.patch('bank_details', _activeBank.id, { bank_name, account_number, account_name });
+      showToast('Bank details updated successfully!');
+    } else {
+      // Insert new
+      await sb.post('bank_details', { bank_name, account_number, account_name, is_active: true });
+      showToast('Bank details saved!');
+    }
+    await refreshAllData();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Details';
+  }
+});
+
+// ──────────────────────────────────────────────────────────────
+// 17. BOOTSTRAP / DATA REFRESH HELPER
+// ──────────────────────────────────────────────────────────────
+async function refreshAllData() {
+  const active = document.querySelector('.nav-item.active')?.dataset.panel || 'overview';
+  
+  // Re-populate dropdowns
   await populateElectionDropdowns();
+  
   // Trigger position dropdown for candidate form
-  const firstElId = document.getElementById('candElection')?.value;
-  if (firstElId) updatePositionDropdown(firstElId);
-  fetchOverview();
-})();
+  const candEl = document.getElementById('candElection')?.value;
+  if (candEl) await updatePositionDropdown(candEl);
+
+  // Refresh active view
+  if (active === 'overview')     await fetchOverview();
+  if (active === 'leaderboard')  {
+    const el = document.getElementById('leaderElectionFilter').value;
+    await fetchLeaderboard(el);
+  }
+  if (active === 'transactions') { await fetchOverview(); }
+  if (active === 'students')     { await fetchStudents(); }
+  if (active === 'payments')     { await fetchBankDetails(); }
+  if (active === 'elections')    { await renderElectionList(); }
+  if (active === 'positions')    { await renderPositionList(); }
+  if (active === 'candidates')   {
+    const el = document.getElementById('candFilterElection').value;
+    await renderCandidateList(el !== 'all' ? el : null);
+  }
+}
+
+async function initDashboard() {
+  await refreshAllData();
+}
+
+// Only auto-init if gate was already unlocked (returning session)
+if (_gateUnlocked) {
+  initDashboard();
+}
