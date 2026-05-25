@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASSON Voting — Student Portal</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Paystack Inline JS -->
+  <script src="https://js.paystack.co/v1/inline.js"></script>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════
+     AUTH PAGE  (shown when logged out)
+════════════════════════════════════════ -->
+<div id="authPage" class="auth-page">
+  <div class="auth-wrap">
+    <div class="auth-card">
+
+      <!-- Card Head -->
+      <div class="auth-card-head">
+        <div class="auth-logo-ring">
+          <!-- Ballot-box SVG -->
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/>
+          </svg>
+        </div>
+        <h1 class="auth-title">ASSON Voting</h1>
+        <p class="auth-subtitle">Student Portal — Secure Login</p>
+      </div>
+
+      <!-- Card Body -->
+      <div class="auth-card-body">
+        <div id="authError" class="hidden" style="
+          background: var(--danger-lt); color: var(--danger);
+          border: 1px solid #fca5a5; border-radius: var(--radius-md);
+          padding: .75rem 1rem; font-size: .85rem; margin-bottom: 1rem;
+          display: flex; align-items: center; gap: .5rem;">
+          <span>⚠</span> <span id="authErrorMsg"></span>
+        </div>
+
+        <form id="loginForm" novalidate>
+          <div style="display:flex; flex-direction:column; gap:1.25rem;">
+
+            <div class="form-group">
+              <label class="form-label" for="matricInput">Matric Number</label>
+              <input
+                id="matricInput"
+                type="text"
+                class="form-control"
+                placeholder="e.g. CSC/2020/001"
+                autocomplete="username"
+                required
+              />
+              <span class="form-hint">Your university matriculation number</span>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="surnameInput">Surname</label>
+              <input
+                id="surnameInput"
+                type="password"
+                class="form-control"
+                placeholder="Enter your surname"
+                autocomplete="current-password"
+                required
+              />
+              <span class="form-hint">Your surname (case-insensitive)</span>
+            </div>
+
+            <button type="submit" id="loginBtn" class="btn btn-primary btn-xl w-full">
+              <span id="loginBtnText">Sign In &amp; Vote</span>
+              <span id="loginSpinner" class="spinner hidden"></span>
+            </button>
+
+          </div>
+        </form>
+      </div>
+
+      <div class="auth-footer-text">
+        Your matric number and surname are used for secure authentication.
+        No personal data is stored beyond what's needed for the vote.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     VOTING PAGE  (shown when logged in)
+════════════════════════════════════════ -->
+<div id="votingPage" class="hidden">
+
+  <!-- Site Header -->
+  <header class="site-header">
+    <div class="container">
+      <div class="logo">
+        <div class="logo-mark">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="logo-text">ASSON Voting</div>
+          <div class="logo-sub">Student Portal</div>
+        </div>
+      </div>
+
+      <div class="header-user">
+        <div class="user-pill">
+          <div id="headerAvatar" class="user-avatar">--</div>
+          <div id="headerName" class="user-name">Loading…</div>
+        </div>
+        <button id="logoutBtn" class="btn btn-ghost btn-sm">
+          <!-- logout icon -->
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5-5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+          </svg>
+          Logout
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Banner -->
+  <section class="page-hero" id="electionHero">
+    <div class="container">
+      <div id="heroBadge" class="badge badge-green" style="margin-bottom:.75rem;">
+        <span style="width:7px;height:7px;background:var(--green);border-radius:50%;display:inline-block;margin-right:.35rem;animation:pulse 1.5s ease infinite;"></span>
+        Live Voting
+      </div>
+      <h1 class="hero-title" id="heroTitle">Loading Election…</h1>
+      <p class="hero-sub" id="heroSub">Please wait while we fetch the ballot.</p>
+    </div>
+  </section>
+
+  <!-- Main Content -->
+  <main style="padding: 2rem 0;">
+    <div class="container">
+
+      <!-- Election Selector (multiple active elections) -->
+      <div id="electionSelector" class="hidden" style="margin-bottom:1.5rem;">
+        <label class="form-label" style="margin-bottom:.5rem; display:block;">Select Election</label>
+        <select id="electionSelect" class="form-control" style="max-width:400px;"></select>
+      </div>
+
+      <!-- Page loader -->
+      <div id="ballotLoader" class="page-loader">
+        <div class="spinner-lg spinner"></div>
+        <span>Fetching ballot…</span>
+      </div>
+
+      <!-- Voting layout -->
+      <div id="ballotContent" class="voting-layout hidden">
+
+        <!-- Left: Positions + Candidates -->
+        <div id="positionsList"></div>
+
+        <!-- Right: Cart -->
+        <aside class="cart-sticky">
+          <div class="cart-card">
+            <div class="cart-header">
+              <div class="cart-header-icon">
+                <!-- Cart icon -->
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                  <path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 5l.94 2H18l-2.18 7.39-.01.06H8.1l-2.1-9.45H2V3h5.45L8.64 7H7.2zM17.18 14L19 7H9.08l1.94 7H17.18z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="cart-title">Voting Cart</div>
+                <div style="font-size:.7rem;opacity:.7;" id="cartCount">0 selections</div>
+              </div>
+            </div>
+
+            <div class="cart-body">
+              <div id="cartEmpty" class="cart-empty">
+                <div class="cart-empty-icon">🗳️</div>
+                <p>Your cart is empty.</p>
+                <p style="margin-top:.375rem;font-size:.75rem;">Select candidates and set vote quantities below.</p>
+              </div>
+              <div id="cartItems"></div>
+            </div>
+
+            <div id="cartSummaryWrap" class="hidden">
+              <div class="cart-divider" style="margin: 0;"></div>
+              <div style="padding: .875rem 1rem;">
+                <div class="cart-summary-row">
+                  <span class="text-muted">Total Votes</span>
+                  <span id="cartTotalVotes" class="font-semi">0</span>
+                </div>
+                <div class="cart-summary-row">
+                  <span class="text-muted">Rate</span>
+                  <span id="cartRate" class="font-semi">₦100 / vote</span>
+                </div>
+                <div class="cart-summary-row total">
+                  <span>Total Amount</span>
+                  <span id="cartTotal">₦0.00</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cart-footer">
+              <button id="payBtn" class="btn btn-primary btn-xl w-full" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>
+                </svg>
+                Pay &amp; Vote
+              </button>
+              <p style="font-size:.7rem;color:var(--gray-500);text-align:center;margin-top:.5rem;">
+                Powered by Paystack — 100% secure
+              </p>
+            </div>
+          </div>
+        </aside>
+
+      </div><!-- /voting-layout -->
+
+    </div>
+  </main>
+
+</div><!-- /votingPage -->
+
+
+<!-- ════════════════════════════════════════
+     SUCCESS MODAL
+════════════════════════════════════════ -->
+<div id="successModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-head" style="text-align:center; padding: 2.5rem 2rem;">
+      <div style="font-size:3rem; margin-bottom:.75rem;">🎉</div>
+      <div class="modal-title">Votes Recorded!</div>
+      <p style="color:rgba(255,255,255,.75); font-size:.875rem; margin-top:.375rem;">
+        Your payment was successful and your votes have been cast.
+      </p>
+    </div>
+    <div class="modal-body" style="text-align:center;">
+      <div style="background:var(--green-50); border:1px solid var(--green-100); border-radius:var(--radius-md); padding:1rem;">
+        <div style="font-size:.72rem;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.25rem;">Payment Reference</div>
+        <div id="successRef" style="font-family:monospace;font-size:.95rem;font-weight:700;color:var(--green-900);"></div>
+      </div>
+      <p id="successSummary" style="font-size:.875rem; color:var(--gray-600); margin-top:.75rem;"></p>
+    </div>
+    <div class="modal-foot" style="justify-content:center;">
+      <button id="successCloseBtn" class="btn btn-primary">Continue Voting</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+
+<!-- Config & App Script -->
+<script>
+  // ── CONFIGURATION — update these for your project ──────────
+  window.ASSON_CONFIG = {
+    supabaseUrl:    'https://YOUR_PROJECT_REF.supabase.co',
+    supabaseKey:    'YOUR_SUPABASE_ANON_KEY',
+    paystackPubKey: 'pk_test_YOUR_PAYSTACK_PUBLIC_KEY',
+    dummyDomain:    '@asson.app',
+  };
+</script>
+<script src="app.js"></script>
+
+</body>
+</html>
