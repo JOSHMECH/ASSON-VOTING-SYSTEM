@@ -39,14 +39,7 @@ exports.handler = async function(event, context) {
     // Resolve 'admin' to the admin's email from environment variables
     let recipient = to;
     if (to === 'admin') {
-      recipient = process.env.ADMIN_EMAIL;
-      if (!recipient) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: 'ADMIN_EMAIL environment variable is not set on Netlify' })
-        };
-      }
+      recipient = process.env.ADMIN_EMAIL || 'joshmech851@gmail.com';
     }
 
     // 1. Try Resend API if API key is configured
