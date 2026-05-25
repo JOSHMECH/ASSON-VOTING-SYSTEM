@@ -142,6 +142,24 @@ function escHtml(str = '') {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ──────────────────────────────────────────────────────────────
+// EMAIL NOTIFICATIONS HELPER
+// ──────────────────────────────────────────────────────────────
+async function sendEmailNotification(to, subject, html) {
+  try {
+    const res = await fetch('/.netlify/functions/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, subject, html })
+    });
+    if (!res.ok) {
+      console.warn('Failed to send email notification:', await res.text());
+    }
+  } catch (error) {
+    console.error('Error sending email notification:', error);
+  }
+}
+
 function fmtNaira(n) {
   return '₦' + Number(n||0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
 }
@@ -458,8 +476,18 @@ function renderGroupedTxns(votes, tbodyId) {
     if (t.status === 'pending') {
       actions = `
         <div style="display:flex; gap:.35rem;">
-          <button class="btn btn-primary btn-sm approve-txn-btn" data-ref="${escHtml(t.reference)}" style="padding:.25rem .5rem; font-size:.75rem;">Approve</button>
-          <button class="btn btn-danger btn-sm reject-txn-btn" data-ref="${escHtml(t.reference)}" style="padding:.25rem .5rem; font-size:.75rem;">Reject</button>
+          <button class="btn btn-primary btn-sm approve-txn-btn" 
+            data-ref="${escHtml(t.reference)}" 
+            data-email="${escHtml(t.email)}" 
+            data-amount="${t.amount}" 
+            data-votes="${t.votes_count}" 
+            style="padding:.25rem .5rem; font-size:.75rem;">Approve</button>
+          <button class="btn btn-danger btn-sm reject-txn-btn" 
+            data-ref="${escHtml(t.reference)}" 
+            data-email="${escHtml(t.email)}" 
+            data-amount="${t.amount}" 
+            data-votes="${t.votes_count}" 
+            style="padding:.25rem .5rem; font-size:.75rem;">Reject</button>
         </div>`;
     }
 
@@ -480,10 +508,34 @@ function renderGroupedTxns(votes, tbodyId) {
   tbody.querySelectorAll('.approve-txn-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const ref = btn.dataset.ref;
+      const email = btn.dataset.email;
+      const amount = Number(btn.dataset.amount || 0);
+      const votes = btn.dataset.votes;
+
       btn.disabled = true; btn.textContent = 'Approve…';
       try {
         await sb.patchQuery('votes', 'payment_reference=eq.' + ref, { status: 'approved' });
         showToast('Transaction approved!');
+
+        // Send email to student asynchronously (non-blocking)
+        if (email && email !== '—' && email !== 'unknown') {
+          sendEmailNotification(email, 'ASSON Voting — Payment Approved & Votes Cast!', `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+              <h2 style="color: #008751; margin-top: 0;">Payment Verified Successfully</h2>
+              <p>Hello,</p>
+              <p>Your payment proof for the ASSON Voting portal has been verified and approved by the administrator. Your votes have been officially counted on the leaderboard!</p>
+              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 6px; margin: 20px 0;">
+                <p style="margin: 0 0 8px 0; font-size: 14px; color: #166534;"><strong>Payment Reference:</strong> <code>${escHtml(ref)}</code></p>
+                <p style="margin: 0 0 8px 0; font-size: 14px; color: #166534;"><strong>Total Votes Counted:</strong> ${votes} votes</p>
+                <p style="margin: 0; font-size: 14px; color: #166534;"><strong>Amount Verified:</strong> ₦${amount.toLocaleString()}</p>
+              </div>
+              <p>You can check the live results and vote counts on the main portal.</p>
+              <p style="margin-top:20px;"><a href="https://asson-voting-system.netlify.app" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go to Student Portal</a></p>
+              <p style="font-size: 13px; color: #64748b; margin-top:25px; margin-bottom: 0;">Thank you for participating! <br/>ASSON Electoral Committee</p>
+            </div>
+          `);
+        }
+
         await refreshAllData();
       } catch (err) {
         showToast('Approval failed: ' + err.message, 'error');
@@ -495,10 +547,35 @@ function renderGroupedTxns(votes, tbodyId) {
   tbody.querySelectorAll('.reject-txn-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const ref = btn.dataset.ref;
+      const email = btn.dataset.email;
+      const amount = Number(btn.dataset.amount || 0);
+      const votes = btn.dataset.votes;
+
       btn.disabled = true; btn.textContent = 'Reject…';
       try {
         await sb.patchQuery('votes', 'payment_reference=eq.' + ref, { status: 'rejected' });
         showToast('Transaction rejected.');
+
+        // Send email to student asynchronously (non-blocking)
+        if (email && email !== '—' && email !== 'unknown') {
+          sendEmailNotification(email, 'ASSON Voting — Payment Proof Rejected', `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+              <h2 style="color: #b91c1c; margin-top: 0;">Payment Proof Verification Failed</h2>
+              <p>Hello,</p>
+              <p>We are sorry, but the administrator was unable to verify your proof of payment for the ASSON Voting Portal. As a result, your transaction has been rejected and the votes have not been counted.</p>
+              <div style="background-color: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 6px; margin: 20px 0;">
+                <p style="margin: 0 0 8px 0; font-size: 14px; color: #991b1b;"><strong>Payment Reference:</strong> <code>${escHtml(ref)}</code></p>
+                <p style="margin: 0 0 8px 0; font-size: 14px; color: #991b1b;"><strong>Attempted Votes:</strong> ${votes} votes</p>
+                <p style="margin: 0; font-size: 14px; color: #991b1b;"><strong>Attempted Amount:</strong> ₦${amount.toLocaleString()}</p>
+              </div>
+              <p><strong>What to do next:</strong></p>
+              <p>Please double-check your bank app to ensure the transfer was successful. If the money has left your account, go back to the voting portal, re-cast your votes, and upload a clear screenshot of the successful transaction receipt.</p>
+              <p style="margin-top:20px;"><a href="https://asson-voting-system.netlify.app" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go back to Voting Portal</a></p>
+              <p style="font-size: 13px; color: #64748b; margin-top:25px; margin-bottom: 0;">If you believe this is a mistake, please reach out to the department's electoral officer.<br/>ASSON Electoral Committee</p>
+            </div>
+          `);
+        }
+
         await refreshAllData();
       } catch (err) {
         showToast('Rejection failed: ' + err.message, 'error');

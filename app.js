@@ -138,6 +138,20 @@ async function signUpWithEmail(email, password) {
     _currentUser = signupData.user;
     sessionStorage.setItem('asson_session', JSON.stringify(_session));
     sessionStorage.setItem('asson_user',    JSON.stringify(_currentUser));
+
+    // Send email alert to admin asynchronously (non-blocking)
+    sendEmailNotification('admin', 'New Student Sign Up Alert', `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+        <h2 style="color: #008751; margin-top: 0;">New Account Registered</h2>
+        <p>Hello Admin,</p>
+        <p>A new student has just registered an account on the ASSON Voting Portal.</p>
+        <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 20px 0;">
+          <p style="margin: 0; font-size: 14px; color: #475569;"><strong>Student Email:</strong> ${escHtml(email)}</p>
+          <p style="margin: 5px 0 0 0; font-size: 14px; color: #475569;"><strong>Registered At:</strong> ${new Date().toLocaleString()}</p>
+        </div>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0;">This is an automated notification from the ASSON Voting System.</p>
+      </div>
+    `);
   } else {
     // Email confirmation may be enabled — try to sign in directly
     throw new Error('Account created! Please check your email to confirm, then sign in.');
@@ -533,6 +547,30 @@ async function saveVotes(paymentRef, totalAmountPaid, receiptUrl = null) {
     // Insert all vote rows in a single batch
     await sb.post('votes', voteRows);
 
+    // Send email alert to admin asynchronously (non-blocking)
+    const totalVotes = items.reduce((s, i) => s + i.qty, 0);
+    const cartSummaryHtml = items.map(i => `<li>${escHtml(i.candidate.name)} (×${i.qty} votes)</li>`).join('');
+    sendEmailNotification('admin', 'New Payment Receipt Uploaded', `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+        <h2 style="color: #ca8a04; margin-top: 0;">New Payment Pending Approval</h2>
+        <p>Hello Admin,</p>
+        <p>A student has uploaded a payment receipt and cast their votes. Please review the transfer details on the dashboard to approve or reject the transaction.</p>
+        <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 20px 0;">
+          <p style="margin: 0 0 10px 0; font-size: 14px; color: #475569;"><strong>Student Email:</strong> ${escHtml(userEmail)}</p>
+          <p style="margin: 0 0 10px 0; font-size: 14px; color: #475569;"><strong>Reference:</strong> <code style="background-color:#e2e8f0; padding:2px 4px; border-radius:3px;">${escHtml(paymentRef)}</code></p>
+          <p style="margin: 0 0 10px 0; font-size: 14px; color: #475569;"><strong>Votes Selected:</strong> ${totalVotes} votes</p>
+          <p style="margin: 0 0 10px 0; font-size: 14px; color: #475569;"><strong>Amount Paid:</strong> ₦${totalAmountPaid.toLocaleString()}</p>
+          <p style="margin: 0; font-size: 14px; color: #475569;"><strong>Proof Link:</strong> <a href="${escHtml(receiptUrl)}" target="_blank" style="color:#008751; text-decoration:underline;">View Receipt</a></p>
+        </div>
+        <h3 style="color:#334155; font-size: 15px;">Ballot Selections:</h3>
+        <ul style="color:#475569; font-size: 14px; padding-left:20px; margin-top:5px;">
+          ${cartSummaryHtml}
+        </ul>
+        <p style="margin-top:20px;"><a href="https://asson-voting-system.netlify.app/admin.html" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go to Admin Dashboard</a></p>
+        <p style="font-size: 13px; color: #64748b; margin-top:25px; margin-bottom: 0;">This is an automated notification from the ASSON Voting System.</p>
+      </div>
+    `);
+
     // Show success modal
     const totalVotes = items.reduce((s, i) => s + i.qty, 0);
     document.getElementById('successRef').textContent     = paymentRef;
@@ -564,6 +602,24 @@ function escHtml(str = '') {
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&#039;');
+}
+
+// ──────────────────────────────────────────────────────────────
+// 11.5 EMAIL NOTIFICATIONS HELPER
+// ──────────────────────────────────────────────────────────────
+async function sendEmailNotification(to, subject, html) {
+  try {
+    const res = await fetch('/.netlify/functions/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, subject, html })
+    });
+    if (!res.ok) {
+      console.warn('Failed to send email notification:', await res.text());
+    }
+  } catch (error) {
+    console.error('Error sending email notification:', error);
+  }
 }
 
 // ──────────────────────────────────────────────────────────────

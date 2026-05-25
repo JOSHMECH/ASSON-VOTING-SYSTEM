@@ -1,0 +1,9 @@
+{
+  "name": "asson-voting-system",
+  "version": "1.0.0",
+  "description": "ASSON Voting System",
+  "main": "app.js",
+  "dependencies": {
+    "nodemailer": "^6.9.13"
+  }
+}
