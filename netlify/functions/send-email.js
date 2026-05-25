@@ -36,10 +36,33 @@ exports.handler = async function(event, context) {
       };
     }
 
-    // Resolve 'admin' to the admin's email from environment variables
+    // Resolve 'admin' to the admin's email (check database first)
     let recipient = to;
     if (to === 'admin') {
-      recipient = process.env.ADMIN_EMAIL || 'joshmech851@gmail.com';
+      try {
+        const sbUrl = process.env.SUPABASE_URL || 'https://vkiykdykzgcfylvxlcud.supabase.co';
+        const sbKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZraXlrZHlremdjZnlsdnhsY3VkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTIzNjksImV4cCI6MjA5NTI4ODM2OX0.aR6dAGYdf6SX9DvAZeMZNj9G2pFTCMxUIVlokx3PpFM';
+        
+        const dbRes = await fetch(`${sbUrl}/rest/v1/bank_details?is_active=eq.true&limit=1`, {
+          headers: {
+            'apikey': sbKey,
+            'Authorization': `Bearer ${sbKey}`
+          }
+        });
+        
+        if (dbRes.ok) {
+          const details = await dbRes.json();
+          if (details && details.length > 0 && details[0].admin_email) {
+            recipient = details[0].admin_email;
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching admin email from database:', err);
+      }
+      
+      if (recipient === 'admin') {
+        recipient = process.env.ADMIN_EMAIL || 'joshmech851@gmail.com';
+      }
     }
 
     // 1. Try Resend API if API key is configured

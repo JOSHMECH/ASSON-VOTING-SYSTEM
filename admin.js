@@ -1129,6 +1129,7 @@ async function fetchBankDetails() {
     document.getElementById('bankNameInput').value = _activeBank.bank_name;
     document.getElementById('accountNumberInput').value = _activeBank.account_number;
     document.getElementById('accountNameInput').value = _activeBank.account_name;
+    document.getElementById('adminEmailInput').value = _activeBank.admin_email || '';
 
     container.innerHTML = `
       <div style="background:var(--green-50); border:1px solid var(--green-100); border-radius:var(--radius-md); padding:1rem; display:flex; flex-direction:column; gap:.5rem;">
@@ -1143,6 +1144,10 @@ async function fetchBankDetails() {
         <div style="display:flex; justify-content:space-between; font-size:.85rem;">
           <span class="text-muted">Account Name</span>
           <span class="font-semi text-green">${escHtml(_activeBank.account_name)}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:.85rem;">
+          <span class="text-muted">Admin Email</span>
+          <span class="font-semi text-green">${escHtml(_activeBank.admin_email || '—')}</span>
         </div>
       </div>
     `;
@@ -1161,15 +1166,16 @@ document.getElementById('updateBankForm').addEventListener('submit', async e => 
   const bank_name = document.getElementById('bankNameInput').value.trim();
   const account_number = document.getElementById('accountNumberInput').value.trim();
   const account_name = document.getElementById('accountNameInput').value.trim();
+  const admin_email = document.getElementById('adminEmailInput').value.trim();
 
   try {
     if (_activeBank) {
       // Update existing
-      await sb.patch('bank_details', _activeBank.id, { bank_name, account_number, account_name });
+      await sb.patch('bank_details', _activeBank.id, { bank_name, account_number, account_name, admin_email });
       showToast('Bank details updated successfully!');
     } else {
       // Insert new
-      await sb.post('bank_details', { bank_name, account_number, account_name, is_active: true });
+      await sb.post('bank_details', { bank_name, account_number, account_name, admin_email, is_active: true });
       showToast('Bank details saved!');
     }
     await refreshAllData();
