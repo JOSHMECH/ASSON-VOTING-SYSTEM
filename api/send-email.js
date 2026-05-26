@@ -1,39 +1,30 @@
 const nodemailer = require('nodemailer');
 
-exports.handler = async function(event, context) {
+module.exports = async function(req, res) {
   // CORS Headers
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS'
-  };
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
 
   // Handle Options preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: ''
-    };
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
   }
 
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: corsHeaders,
-      body: 'Method Not Allowed'
-    };
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
-    const { to, subject, html } = JSON.parse(event.body);
+    // Vercel pre-parses req.body, but fallback to parsing if it is passed as a string
+    let body = req.body;
+    if (typeof body === 'string') {
+      body = JSON.parse(body);
+    }
+    const { to, subject, html } = body || {};
 
     if (!to || !subject || !html) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Missing to, subject, or html parameter' })
-      };
+      return res.status(400).json({ error: 'Missing to, subject, or html parameter' });
     }
 
     // Resolve 'admin' to the admin's email (check database first)
@@ -90,11 +81,7 @@ exports.handler = async function(event, context) {
         throw new Error(data.message || 'Resend API returned an error');
       }
 
-      return {
-        statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true, message: 'Email sent via Resend API', id: data.id })
-      };
+      return res.status(200).json({ success: true, message: 'Email sent via Resend API', id: data.id });
     }
 
     // 2. Try Nodemailer SMTP fallback if configured
@@ -121,26 +108,14 @@ exports.handler = async function(event, context) {
         html
       });
 
-      return {
-        statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true, message: 'Email sent via SMTP', messageId: info.messageId })
-      };
+      return res.status(200).json({ success: true, message: 'Email sent via SMTP', messageId: info.messageId });
     }
 
     // 3. Neither is configured
-    return {
-      statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'No email service provider configured. Set RESEND_API_KEY or SMTP_* environment variables.' })
-    };
+    return res.status(500).json({ error: 'No email service provider configured. Set RESEND_API_KEY or SMTP_* environment variables.' });
 
   } catch (error) {
     console.error('Email send error:', error);
-    return {
-      statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: error.message })
-    };
+    return res.status(500).json({ error: error.message });
   }
 };

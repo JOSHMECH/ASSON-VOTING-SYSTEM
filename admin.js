@@ -147,7 +147,7 @@ function escHtml(str = '') {
 // ──────────────────────────────────────────────────────────────
 async function sendEmailNotification(to, subject, html) {
   try {
-    const res = await fetch('/.netlify/functions/send-email', {
+    const res = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ to, subject, html })
@@ -530,7 +530,7 @@ function renderGroupedTxns(votes, tbodyId) {
                 <p style="margin: 0; font-size: 14px; color: #166534;"><strong>Amount Verified:</strong> ₦${amount.toLocaleString()}</p>
               </div>
               <p>You can check the live results and vote counts on the main portal.</p>
-              <p style="margin-top:20px;"><a href="https://asson-voting-system.netlify.app" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go to Student Portal</a></p>
+              <p style="margin-top:20px;"><a href="${window.location.origin}" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go to Student Portal</a></p>
               <p style="font-size: 13px; color: #64748b; margin-top:25px; margin-bottom: 0;">Thank you for participating! <br/>ASSON Electoral Committee</p>
             </div>
           `);
@@ -570,7 +570,7 @@ function renderGroupedTxns(votes, tbodyId) {
               </div>
               <p><strong>What to do next:</strong></p>
               <p>Please double-check your bank app to ensure the transfer was successful. If the money has left your account, go back to the voting portal, re-cast your votes, and upload a clear screenshot of the successful transaction receipt.</p>
-              <p style="margin-top:20px;"><a href="https://asson-voting-system.netlify.app" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go back to Voting Portal</a></p>
+              <p style="margin-top:20px;"><a href="${window.location.origin}" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go back to Voting Portal</a></p>
               <p style="font-size: 13px; color: #64748b; margin-top:25px; margin-bottom: 0;">If you believe this is a mistake, please reach out to the department's electoral officer.<br/>ASSON Electoral Committee</p>
             </div>
           `);

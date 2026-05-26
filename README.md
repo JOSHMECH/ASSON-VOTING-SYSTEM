@@ -195,23 +195,27 @@ Success modal confirms the vote + reference number
 
 ## Step 8 — Deployment Options
 
-### Option A: GitHub Pages (Recommended for Static Files)
+### Option A: Deploy to Vercel (Recommended)
 
-1. Create a GitHub repository (e.g. `asson-voting`)
-2. Push all 6 files to the repository root
-3. Go to **Settings** → **Pages** → **Source**: `main` branch, `/ (root)`
-4. Your student portal will be live at `https://yourusername.github.io/asson-voting/`
-5. Keep `admin.html` in a non-obvious path or protect it with a redirect
+Since the project uses serverless API functions to send emails, Vercel is the recommended platform as it natively supports both static page hosting and serverless api functions from the `/api` directory.
 
-### Option B: Netlify Drop
+1. Create a GitHub repository (e.g. `asson-voting`) and push all your files (including the `/api` directory) to it.
+2. Go to [https://vercel.com](https://vercel.com) and sign in.
+3. Click **Add New** → **Project**, and import your repository.
+4. In the **Configure Project** step, open the **Environment Variables** accordion and add the following keys:
+   - `SUPABASE_URL`: Your Supabase Project URL.
+   - `SUPABASE_KEY`: Your Supabase Service Role Key (needed to fetch/resolve admin details).
+   - `RESEND_API_KEY`: (Optional) Your Resend API key.
+   - `FROM_EMAIL`: The verified sender address (e.g. `ASSON Voting <onboarding@resend.dev>`).
+   - `ADMIN_EMAIL`: Default admin email to receive notifications (e.g., `joshmech851@gmail.com`).
+   - *If using SMTP fallback instead of Resend:*
+     - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+5. Click **Deploy**. Vercel will build the project and deploy it.
+6. Once deployed, the system will automatically resolve the root URL for all transaction emails dynamically.
 
-1. Go to [https://app.netlify.com/drop](https://app.netlify.com/drop)
-2. Drag and drop the entire `asson-voting/` folder
-3. Netlify generates a unique URL instantly
+### Option B: Cloudflare Pages / GitHub Pages
+You can also host the static files on other static providers (like GitHub Pages or Cloudflare Pages), but you will need to host the email-sending function elsewhere (e.g., as a Supabase Edge Function or Cloudflare Worker) and update the fetch endpoint in `app.js` and `admin.js`.
 
-### Option C: Any Static Host
-
-Just upload all 6 files to the same directory on any web host (Hostinger, cPanel, Vercel, Cloudflare Pages, etc.). No server-side runtime is needed — all backend logic runs through Supabase's hosted API.
 
 ---
 

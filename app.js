@@ -566,7 +566,7 @@ async function saveVotes(paymentRef, totalAmountPaid, receiptUrl = null) {
         <ul style="color:#475569; font-size: 14px; padding-left:20px; margin-top:5px;">
           ${cartSummaryHtml}
         </ul>
-        <p style="margin-top:20px;"><a href="https://asson-voting-system.netlify.app/admin.html" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go to Admin Dashboard</a></p>
+        <p style="margin-top:20px;"><a href="${window.location.origin}/admin.html" style="background-color:#008751; color:#ffffff; padding:10px 16px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block;">Go to Admin Dashboard</a></p>
         <p style="font-size: 13px; color: #64748b; margin-top:25px; margin-bottom: 0;">This is an automated notification from the ASSON Voting System.</p>
       </div>
     `);
@@ -608,7 +608,7 @@ function escHtml(str = '') {
 // ──────────────────────────────────────────────────────────────
 async function sendEmailNotification(to, subject, html) {
   try {
-    const res = await fetch('/.netlify/functions/send-email', {
+    const res = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ to, subject, html })
