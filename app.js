@@ -280,28 +280,79 @@ function renderBallot(positions, candidates) {
     const posCandidates = candidates.filter(c => c.position_id === pos.id);
 
     const section = document.createElement('div');
-    section.className = 'position-section';
+    section.className = 'accordion-card';
     section.innerHTML = `
-      <div class="section-label">
-        <div class="section-label-bar"></div>
-        <div>
-          <div class="section-label-title">${escHtml(pos.title)}</div>
-          ${pos.description ? `<div class="section-label-desc">${escHtml(pos.description)}</div>` : ''}
+      <button class="accordion-header" aria-expanded="false" id="header-${pos.id}">
+        <div class="accordion-header-left">
+          <div class="section-label-bar"></div>
+          <div style="text-align: left;">
+            <div class="section-label-title">${escHtml(pos.title)}</div>
+            ${pos.description ? `<div class="section-label-desc">${escHtml(pos.description)}</div>` : ''}
+          </div>
         </div>
+        <div class="accordion-header-right">
+          <span class="badge badge-gray category-badge" id="badge-${pos.id}" data-count="${posCandidates.length}">
+            ${posCandidates.length} Candidate${posCandidates.length !== 1 ? 's' : ''}
+          </span>
+          <span class="accordion-icon">
+            <svg width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m1 1 5 5 5-5"/>
+            </svg>
+          </span>
+        </div>
+      </button>
+      <div class="accordion-content" id="content-${pos.id}">
+        <div class="grid-auto accordion-content-inner" id="pos-${pos.id}"></div>
       </div>
-      <div class="grid-auto" id="pos-${pos.id}"></div>
     `;
     container.appendChild(section);
 
+    const header = section.querySelector('.accordion-header');
+    const content = section.querySelector('.accordion-content');
     const grid = section.querySelector(`#pos-${pos.id}`);
+
+    // Populate candidates
     posCandidates.forEach(c => {
       grid.appendChild(buildCandidateCard(c, pos));
     });
 
     if (!posCandidates.length) {
-      grid.innerHTML = '<p class="text-muted text-sm">No candidates added yet.</p>';
+      grid.innerHTML = '<p class="text-muted text-sm" style="text-align: center; padding: 2rem 0; width: 100%; grid-column: 1 / -1;">No candidates added yet.</p>';
     }
+
+    // Toggle expand/collapse
+    header.addEventListener('click', function(e) {
+      e.preventDefault();
+      const isExpanded = this.getAttribute('aria-expanded') === 'true';
+
+      if (isExpanded) {
+        this.setAttribute('aria-expanded', 'false');
+        // Force the max-height value to allow transition from dynamic height to 0
+        content.style.maxHeight = content.scrollHeight + 'px';
+        // Force reflow
+        content.offsetHeight; 
+        content.style.maxHeight = '0px';
+        content.style.opacity = '0';
+        setTimeout(() => {
+          content.classList.remove('expanded');
+        }, 400); // matches --transition-slow (400ms)
+      } else {
+        this.setAttribute('aria-expanded', 'true');
+        content.classList.add('expanded');
+        content.style.maxHeight = content.scrollHeight + 'px';
+        content.style.opacity = '1';
+        // After transition finishes, set max-height to none to support window resizing and candidate selection updates
+        setTimeout(() => {
+          if (this.getAttribute('aria-expanded') === 'true') {
+            content.style.maxHeight = 'none';
+          }
+        }, 400);
+      }
+    });
   });
+
+  // Dynamically update category badges to show checkmarks for already active cart items
+  updateCategoryBadges();
 }
 
 function buildCandidateCard(candidate, position) {
@@ -433,7 +484,32 @@ function renderCart() {
   payBtn.textContent = isEmpty
     ? 'Pay & Vote'
     : `Pay ${fmtNaira(totalAmt)}`;
+
+  updateCategoryBadges();
 }
+
+function updateCategoryBadges() {
+  if (!_positions || !_positions.length) return;
+
+  _positions.forEach(pos => {
+    const badgeEl = document.getElementById(`badge-${pos.id}`);
+    if (!badgeEl) return;
+
+    const originalCount = badgeEl.dataset.count || '0';
+    
+    // Find all cart items in this category
+    const posCartItems = Object.values(_cart).filter(item => item.position.id === pos.id);
+    if (posCartItems.length > 0) {
+      const totalQty = posCartItems.reduce((sum, item) => sum + item.qty, 0);
+      badgeEl.className = 'badge badge-green category-badge';
+      badgeEl.innerHTML = `✅ ${totalQty} vote${totalQty > 1 ? 's' : ''}`;
+    } else {
+      badgeEl.className = 'badge badge-gray category-badge';
+      badgeEl.innerHTML = `${originalCount} Candidate${originalCount !== '1' ? 's' : ''}`;
+    }
+  });
+}
+
 
 // ──────────────────────────────────────────────────────────────
 // 9.  MANUAL PROOF OF PAYMENT

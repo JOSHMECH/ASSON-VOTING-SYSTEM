@@ -1132,3 +1132,70 @@ select.form-control { appearance: none; background-image: url("data:image/svg+xm
   .auth-card-head { padding: 1.75rem 1.25rem 1.5rem; }
   .auth-footer-text { padding: 1rem 1.25rem 1.25rem; }
 }
+
+/* ─────────────────────────────────────────
+   COLLAPSIBLE ACCORDION
+   ───────────────────────────────────────── */
+.accordion-card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  border: 1.5px solid var(--gray-200);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+  transition: all var(--transition);
+}
+.accordion-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--gray-300);
+}
+.accordion-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+  transition: background-color var(--transition);
+}
+.accordion-header:hover {
+  background-color: var(--off-white);
+}
+.accordion-header-left {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+.accordion-header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.accordion-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--transition);
+  color: var(--gray-500);
+}
+.accordion-header[aria-expanded="true"] .accordion-icon {
+  transform: rotate(180deg);
+  color: var(--green);
+}
+.accordion-content {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height var(--transition-slow) ease-in-out, opacity var(--transition-slow) ease-in-out, padding var(--transition-slow) ease-in-out;
+  padding: 0 1.5rem;
+}
+.accordion-content.expanded {
+  opacity: 1;
+  padding: 1.5rem;
+  border-top: 1px solid var(--gray-100);
+}
+
